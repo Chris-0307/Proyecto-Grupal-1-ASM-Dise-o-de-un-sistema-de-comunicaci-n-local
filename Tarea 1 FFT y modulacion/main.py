@@ -30,13 +30,15 @@ if __name__ == "__main__":
     FREQ_DEV       = 500     # separa f0/f1: f0=1500 Hz, f1=2500 Hz
 
     modulador = ModuladorFSK(
-        freq_mensaje=FREQ_MENSAJE,
-        freq_portadora=FREQ_PORTADORA,
+        freq_mensaje=FREQ_MENSAJE,     # bps
+        freq_portadora=FREQ_PORTADORA, # fc
         duracion=DURACION,
         sr=SAMPLE_RATE,
         fft_analyzer=fft_analyzer,
-        freq_dev=FREQ_DEV
+        freq_dev=FREQ_DEV,
+        tx_waveform="square"           # <<— ACTIVA CUADRADA f0/f1 POR BIT
     )
+
 
     time_domain_data, fft_domain_data = modulador.run_simulation_and_get_data()
     

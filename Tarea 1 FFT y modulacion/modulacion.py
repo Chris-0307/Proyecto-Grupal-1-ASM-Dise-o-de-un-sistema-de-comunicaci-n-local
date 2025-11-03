@@ -1,16 +1,19 @@
-# modulacion.py — FSK binaria con NRZ alineada y demod 0/1 visible
+# modulacion.py — FSK binaria con opción de portadora cuadrada por bit
 import numpy as np
 from audio_fft import AudioFFT
 
 class ModuladorFSK:
     """
-    BFSK (0 -> f0 = fc - dev, 1 -> f1 = fc + dev) con mensaje NRZ 0/1
-    perfectamente alineado a la duración de bit. Demodulación no coherente
-    por correlación I/Q en ventanas de un bit y forma de onda recuperada
-    como escalones 0/1 (sin suavizado que la aplaste).
+    BFSK (0 -> f0 = fc - dev, 1 -> f1 = fc + dev) con mensaje NRZ 0/1.
+    Permite elegir la forma de onda transmitida:
+      - tx_waveform="cos": coseno clásico a f_inst (por defecto)
+      - tx_waveform="square": onda cuadrada ±1 a f0/f1 por cada bit
+
+    Demodulación no coherente por correlación I/Q ventana-a-ventana (Nbit).
     """
     def __init__(self, freq_mensaje, freq_portadora, duracion, sr,
-                 fft_analyzer: AudioFFT, freq_dev=500.0, bits=None):
+                 fft_analyzer: AudioFFT, freq_dev=500.0, bits=None,
+                 tx_waveform: str = "cos"):
         # freq_mensaje se interpreta como bit_rate (bps)
         self.bit_rate = float(freq_mensaje)
         self.fc = float(freq_portadora)
@@ -31,10 +34,14 @@ class ModuladorFSK:
 
         # señales
         self.mensaje = None      # 0/1 NRZ (longitud N)
-        self.portadora = None    # solo referencia
-        self.modulada = None     # señal FSK
+        self.portadora = None    # coseno de referencia (para graficar)
+        self.modulada = None     # señal FSK transmitida (cos o cuadrada)
         self.demodulada = None   # 0/1 recuperado (escalones)
         self.demod_soft = None   # métrica suave opcional
+
+        # nueva opción de forma de onda TX
+        assert tx_waveform in ("cos", "square")
+        self.tx_waveform = tx_waveform
 
     # ----------------- helpers -----------------
     def _build_bits_aligned(self):
@@ -55,7 +62,7 @@ class ModuladorFSK:
     def _generar_senales(self):
         bits = self._build_bits_aligned()
 
-        # NRZ 0/1 perfectamente alineada a Nbit
+        # NRZ 0/1 perfectamente alineada a Nbit (para graficar y FFT del mensaje)
         msg = np.repeat(bits, self.Nbit)
         if len(msg) < self.N:
             msg = np.pad(msg, (0, self.N - len(msg)), mode="edge")
@@ -64,20 +71,43 @@ class ModuladorFSK:
         self.mensaje = msg.astype(float)
         self.bits_tx = bits.astype(float)
 
-        # Portadora (solo para graficar)
+        # Portadora de referencia (solo para trazar)
         self.portadora = np.cos(2 * np.pi * self.fc * self.t)
 
     def _modular(self):
-        # FSK: f_inst por bit -> repetir a muestras
-        f_bit = np.where(self.bits_tx > 0.5, self.f1, self.f0)
-        f_inst = np.repeat(f_bit, self.Nbit)
-        if len(f_inst) < self.N:
-            f_inst = np.pad(f_inst, (0, self.N - len(f_inst)), mode="edge")
-        else:
-            f_inst = f_inst[:self.N]
+        """
+        Si tx_waveform='cos': coseno a f_inst con fase continua.
+        Si tx_waveform='square': por cada bit se genera un segmento cuadrado ±1
+        a f0 (bit=0) o f1 (bit=1), y se concatenan los Nbit samples.
+        """
+        if self.tx_waveform == "cos":
+            # FSK clásica variando frecuencia instantánea con fase continua
+            f_bit = np.where(self.bits_tx > 0.5, self.f1, self.f0)
+            f_inst = np.repeat(f_bit, self.Nbit)
+            if len(f_inst) < self.N:
+                f_inst = np.pad(f_inst, (0, self.N - len(f_inst)), mode="edge")
+            else:
+                f_inst = f_inst[:self.N]
 
-        phase = 2 * np.pi * np.cumsum(f_inst) / self.sr
-        self.modulada = np.cos(phase)
+            phase = 2 * np.pi * np.cumsum(f_inst) / self.sr
+            self.modulada = np.cos(phase)
+
+        else:  # tx_waveform == "square"
+            # Construcción pieza a pieza por bit (fase se reinicia por bit)
+            x = np.empty(self.n_bits * self.Nbit, dtype=float)
+            for i in range(self.n_bits):
+                f = self.f1 if self.bits_tx[i] > 0.5 else self.f0
+                n = np.arange(self.Nbit) / self.sr
+                # cuadrada ±1; evito 0 exacto con eps para consistencia
+                seg = np.sign(np.sin(2 * np.pi * f * n))
+                seg[seg == 0] = 1.0
+                x[i*self.Nbit:(i+1)*self.Nbit] = seg
+            # Ajuste a longitud N
+            if len(x) < self.N:
+                x = np.pad(x, (0, self.N - len(x)), mode="edge")
+            else:
+                x = x[:self.N]
+            self.modulada = x
 
     def _demodular(self):
         x = self.modulada
@@ -98,14 +128,15 @@ class ModuladorFSK:
             if len(seg) < Nbit:
                 seg = np.pad(seg, (0, Nbit - len(seg)), mode="edge")
 
-            # Correlación I/Q normalizada (2/Nbit) para energías comparables
-            I0 = (2.0/Nbit) * np.dot(seg, c0); Q0 = (2.0/Nbit) * np.dot(seg, s0)
-            I1 = (2.0/Nbit) * np.dot(seg, c1); Q1 = (2.0/Nbit) * np.dot(seg, s1)
+            # Correlación I/Q normalizada
+            scale = (2.0 / Nbit)
+            I0 = scale * np.dot(seg, c0); Q0 = scale * np.dot(seg, s0)
+            I1 = scale * np.dot(seg, c1); Q1 = scale * np.dot(seg, s1)
             E0[i] = I0*I0 + Q0*Q0
             E1[i] = I1*I1 + Q1*Q1
             decisions[i] = 1 if E1[i] > E0[i] else 0
 
-        # Señal recuperada como escalones 0/1 (sin lfilter que la aplaste)
+        # Señal recuperada como escalones 0/1
         demod_bits = np.repeat(decisions, Nbit)
         if len(demod_bits) < self.N:
             demod_bits = np.pad(demod_bits, (0, self.N - len(demod_bits)), mode="edge")
@@ -113,11 +144,13 @@ class ModuladorFSK:
             demod_bits = demod_bits[:self.N]
         self.demodulada = demod_bits.astype(float)
 
-        # Métrica "suave" opcional (útil para debug)
+        # Métrica "suave" (debug)
         self.demod_soft = (E1 - E0) / (np.abs(E1) + np.abs(E0) + 1e-12)
 
-        # Debug corto: primeras 12 decisiones
-        print("FSK DEBUG -> Nbit:", Nbit, "f0/f1:", self.f0, self.f1)
+        # Debug corto
+        print("FSK DEBUG -> Nbit:", Nbit,
+              "f0/f1:", self.f0, self.f1,
+              "TX:", self.tx_waveform)
         print("Decisiones (primeros 12 bits):", decisions[:12])
 
     def run_simulation_and_get_data(self):
@@ -130,7 +163,7 @@ class ModuladorFSK:
             'fm': self.bit_rate,         # aquí es bit_rate
             'mensaje': self.mensaje,     # 0/1 NRZ alineada
             'portadora': self.portadora,
-            'modulada': self.modulada,
+            'modulada': self.modulada,   # ahora puede ser cuadrada o coseno
             'demodulada': self.demodulada
         }
 
