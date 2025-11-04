@@ -67,6 +67,6 @@ class AudioFFT:
 
     def _summary(self, sr, n_fft, freq, mag_db, phase, peaks):
         print(f"Samplerate: {sr} Hz")
-        print(f"FFT size: {n_fft} (Δf ≈ {sr/n_fft:.2f} Hz)")
+        print(f"FFT size: {n_fft} (df ~= {sr/n_fft:.2f} Hz)")
         for i, p in enumerate(peaks, start=1):
             print(f"{i:02d}: {freq[p]:8.2f} Hz | {mag_db[p]:6.1f} dB | fase {phase[p]:+6.2f} rad")
