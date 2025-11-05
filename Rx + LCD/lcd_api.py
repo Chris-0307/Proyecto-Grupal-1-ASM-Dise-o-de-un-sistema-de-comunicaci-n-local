@@ -1,16 +1,11 @@
-# forked from https://github.com/T-622/RPI-PICO-I2C-LCD/
+# lcd_api.py
+# Basado en el código de tu demo funcional.
+
 import time
 
 class LcdApi:
     
     # Implements the API for talking with HD44780 compatible character LCDs.
-    # This class only knows what commands to send to the LCD, and not how to get
-    # them to the LCD.
-    #
-    # It is expected that a derived class will implement the hal_xxx functions.
-    #
-    # The following constant names were lifted from the avrlib lcd.h header file,
-    # with bit numbers changed to bit masks.
     
     # HD44780 LCD controller command set
     LCD_CLR             = 0x01  # DB0: clear display
@@ -54,7 +49,11 @@ class LcdApi:
         self.cursor_x = 0
         self.cursor_y = 0
         self.implied_newline = False
-        self.backlight = True
+        # --- AQUÍ ESTÁ LA CLAVE ---
+        # Tu versión define 'backlight' en la clase base
+        self.backlight = True 
+        
+        # Y luego llama a los métodos
         self.display_off()
         self.backlight_on()
         self.clear()
@@ -98,23 +97,16 @@ class LcdApi:
 
     def backlight_on(self):
         # Turns the backlight on.
-        
-        # This isn't really an LCD command, but some modules have backlight
-        # controls, so this allows the hal to pass through the command.
         self.backlight = True
         self.hal_backlight_on()
 
     def backlight_off(self):
         # Turns the backlight off.
-
-        # This isn't really an LCD command, but some modules have backlight
-        # controls, so this allows the hal to pass through the command.
         self.backlight = False
         self.hal_backlight_off()
 
     def move_to(self, cursor_x, cursor_y):
-        # Moves the cursor position to the indicated position. The cursor
-        # position is zero based (i.e. cursor_x == 0 indicates first column).
+        # Moves the cursor position to the indicated position.
         self.cursor_x = cursor_x
         self.cursor_y = cursor_y
         addr = cursor_x & 0x3f
@@ -126,11 +118,8 @@ class LcdApi:
 
     def putchar(self, char):
         # Writes the indicated character to the LCD at the current cursor
-        # position, and advances the cursor by one position.
         if char == '\n':
             if self.implied_newline:
-                # self.implied_newline means we advanced due to a wraparound,
-                # so if we get a newline right after that we ignore it.
                 pass
             else:
                 self.cursor_x = self.num_columns
@@ -146,14 +135,12 @@ class LcdApi:
         self.move_to(self.cursor_x, self.cursor_y)
 
     def putstr(self, string):
-        # Write the indicated string to the LCD at the current cursor
-        # position and advances the cursor position appropriately.
+        # Write the indicated string to the LCD
         for char in string:
             self.putchar(char)
 
     def custom_char(self, location, charmap):
-        # Write a character to one of the 8 CGRAM locations, available
-        # as chr(0) through chr(7).
+        # Write a character to one of the 8 CGRAM locations
         location &= 0x7
         self.hal_write_command(self.LCD_CGRAM | (location << 3))
         self.hal_sleep_us(40)
@@ -163,25 +150,16 @@ class LcdApi:
         self.move_to(self.cursor_x, self.cursor_y)
 
     def hal_backlight_on(self):
-        # Allows the hal layer to turn the backlight on.
-        # If desired, a derived HAL class will implement this function.
         pass
 
     def hal_backlight_off(self):
-        # Allows the hal layer to turn the backlight off.
-        # If desired, a derived HAL class will implement this function.
         pass
 
     def hal_write_command(self, cmd):
-        # Write a command to the LCD.
-        # It is expected that a derived HAL class will implement this function.
         raise NotImplementedError
 
     def hal_write_data(self, data):
-        # Write data to the LCD.
-        # It is expected that a derived HAL class will implement this function.
         raise NotImplementedError
 
     def hal_sleep_us(self, usecs):
-        # Sleep for some time (given in microseconds)
         time.sleep_us(usecs)
