@@ -1,2 +1,7 @@
+# main.py (Transmisor Simple)
 import tx_fsk
-tx_fsk.send_message_loop()
+import utime
+
+print("Ejecutando main.py (TX Simple)...")
+utime.sleep(1)
+tx_fsk.run_simple_tx()
